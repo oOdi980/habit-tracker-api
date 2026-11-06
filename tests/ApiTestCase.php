@@ -3,8 +3,10 @@
 namespace Tests;
 
 use App\Models\Circle;
+use App\Models\Habit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
 
 // Dasar untuk tes API: database di-refresh, plus beberapa pembantu supaya tes pendek dan jelas.
@@ -27,6 +29,46 @@ abstract class ApiTestCase extends TestCase
         }
 
         return $circle;
+    }
+
+    /** Odi + Anjal + sesi berdua. Odi dibuat lebih dulu, jadi id-nya lebih kecil. */
+    protected function makePair(): array
+    {
+        $odi = $this->makeUser(['name' => 'Odi']);
+        $anjal = $this->makeUser(['name' => 'Anjal']);
+
+        return [$odi, $anjal, $this->makeCircle($odi, $anjal)];
+    }
+
+    /**
+     * Majukan/mundurkan jam aplikasi ke waktu dinding LOKAL tertentu (default WIB).
+     * Contoh: at('2026-11-04 23:59:59'). Kalender acuan: 2026-11-02 adalah hari Senin.
+     */
+    protected function at(string $localTime, string $timezone = 'Asia/Jakarta'): void
+    {
+        $this->travelTo(Carbon::parse($localTime, $timezone));
+    }
+
+    /**
+     * Habit langsung di database (tanpa lewat API) untuk menyiapkan keadaan awal.
+     * $owner = null berarti habit BERSAMA (sudah disetujui, kecuali $attrs menimpanya).
+     * Bawaan: mulai Senin 2026-11-09, target 3.
+     */
+    protected function makeHabit(Circle $circle, ?User $owner, array $attrs = []): Habit
+    {
+        $shared = $owner === null;
+        $creator = $owner ?? $circle->members()->orderBy('users.id')->first();
+
+        return Habit::create(array_merge([
+            'circle_id' => $circle->id,
+            'owner_id' => $owner?->id,
+            'created_by' => $creator->id,
+            'title' => 'Habit tes',
+            'scope' => $shared ? 'shared' : 'personal',
+            'completion_rule' => $shared ? 'together' : 'individual',
+            'target_per_week' => 3,
+            'starts_on' => '2026-11-09',
+        ], $shared ? ['accepted_at' => now()] : [], $attrs));
     }
 
     /**

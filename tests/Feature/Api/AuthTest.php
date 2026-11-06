@@ -150,7 +150,8 @@ class AuthTest extends ApiTestCase
 
     public function test_tanpa_token_dapat_401_json_bukan_redirect(): void
     {
-        // Sengaja tanpa header Accept: ForceJsonResponse yang menjamin balasan JSON.
+        // Sengaja tanpa header Accept. 401 JSON dijamin bootstrap/app.php (redirectGuestsTo null +
+        // shouldRenderJsonWhen untuk api/*), bukan ForceJsonResponse (auth berjalan lebih dulu).
         $this->get('/api/auth/me')->assertUnauthorized()->assertJsonStructure(['message']);
     }
 

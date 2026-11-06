@@ -6,9 +6,11 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-// Semua endpoint API harus membalas JSON, termasuk error. Tanpa ini, klien yang lupa
-// mengirim "Accept: application/json" akan dapat redirect HTML ke halaman login (route
-// "login" tidak ada) alih-alih 401 yang rapi.
+// Memaksa Accept: application/json untuk route API, supaya error validasi (422) selalu
+// berbentuk JSON walaupun klien lupa mengirim header Accept.
+// CATATAN: ini BUKAN yang mencegah redirect ke halaman login pada 401. Middleware auth
+// berjalan lebih dulu daripada middleware route, jadi penanganan 401 ada di bootstrap/app.php
+// (redirectGuestsTo(fn () => null) + shouldRenderJsonWhen untuk path api/*).
 class ForceJsonResponse
 {
     public function handle(Request $request, Closure $next): Response

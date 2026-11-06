@@ -10,22 +10,61 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Habit extends Model
 {
+    // Tahap hidup sebuah habit (dihitung dari tanggal, tidak disimpan):
+    public const PENDING_APPROVAL = 'pending_approval'; // habit bersama, menunggu persetujuan partner
+    public const UPCOMING = 'upcoming';                 // sudah pasti, tetapi mulai dihitung Senin nanti
+    public const ACTIVE = 'active';                     // sedang dihitung
+    public const ENDING = 'ending';                     // diarsipkan, masih dihitung sampai Minggu ini selesai
+    public const ENDED = 'ended';                       // sudah berakhir (tersembunyi)
+
     protected $fillable = [
         'circle_id', 'owner_id', 'created_by', 'title', 'scope', 'completion_rule',
-        'target_per_week', 'accepted_at', 'starts_on', 'ends_on', 'archived_at',
+        'target_per_week', 'pending_target_per_week', 'pending_target_from',
+        'accepted_at', 'starts_on', 'ends_on', 'archived_at',
     ];
 
-    // starts_on / ends_on sengaja TIDAK di-cast: kolom DATE dibiarkan string 'Y-m-d'
-    // supaya tidak ada pergeseran zona waktu lewat Carbon.
+    // Kolom DATE (starts_on, ends_on, pending_target_from) sengaja TIDAK di-cast: dibiarkan
+    // string 'Y-m-d' supaya tidak ada pergeseran zona waktu lewat Carbon, dan bisa dibandingkan
+    // langsung sebagai string.
     protected function casts(): array
     {
         return [
             'scope' => HabitScope::class,
             'completion_rule' => CompletionRule::class,
             'target_per_week' => 'integer',
+            'pending_target_per_week' => 'integer',
             'accepted_at' => 'datetime',
             'archived_at' => 'datetime',
         ];
+    }
+
+    /** Tahap hidup pada tanggal lokal $today ('Y-m-d'). */
+    public function lifecycle(string $today): string
+    {
+        if ($this->ends_on !== null && $this->ends_on <= $today) {
+            return self::ENDED;
+        }
+
+        // Hanya habit bersama yang belum disetujui yang tidak punya starts_on.
+        if ($this->starts_on === null) {
+            return self::PENDING_APPROVAL;
+        }
+
+        if ($this->starts_on > $today) {
+            return self::UPCOMING;
+        }
+
+        return $this->ends_on !== null ? self::ENDING : self::ACTIVE;
+    }
+
+    /** Target yang berlaku untuk minggu yang dimulai $weekStart (memperhitungkan perubahan tertahan). */
+    public function targetFor(string $weekStart): int
+    {
+        if ($this->pending_target_from !== null && $this->pending_target_from <= $weekStart) {
+            return (int) $this->pending_target_per_week;
+        }
+
+        return (int) $this->target_per_week;
     }
 
     public function circle(): BelongsTo

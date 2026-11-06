@@ -13,6 +13,9 @@ return [
     // Batas token aktif per user (kira-kira satu per perangkat). Yang terlama dibuang otomatis.
     'max_tokens_per_user' => 10,
 
+    // Batas habit yang belum berakhir (aktif + akan datang + menunggu persetujuan) per sesi.
+    'max_habits_per_circle' => 30,
+
     'default_timezone' => 'Asia/Jakarta',
 
     'invite' => [
@@ -21,5 +24,10 @@ return [
         // 32 karakter tanpa I, O, 0, 1 (gampang tertukar). 32 = 2^5, jadi tiap karakter
         // dipilih seragam, tanpa bias dari operasi modulo.
         'alphabet' => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
+    ],
+
+    'checkin' => [
+        // Jam dari HP dipercaya hanya bila selisihnya dengan jam server <= nilai ini (menit).
+        'client_ts_tolerance_minutes' => 10,
     ],
 ];
