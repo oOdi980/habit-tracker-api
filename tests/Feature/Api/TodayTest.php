@@ -180,4 +180,51 @@ class TodayTest extends ApiTestCase
         $this->callAs('GET', $this->url($circle->id), $penyusup)->assertNotFound();
         $this->callAs('GET', $this->url($circle->id))->assertUnauthorized();
     }
+
+    public function test_papan_memuat_status_izin_dan_lencana_persetujuan_punishment(): void
+    {
+        [$odi, $anjal, $circle] = $this->makePair();
+        $this->at('2026-11-10 10:00'); // Selasa, minggu berjalan 11-09
+        $habit = $this->makeHabit($circle, $odi);
+
+        // Odi mengajukan izin minggu ini (menunggu Anjal) dan mengusulkan satu item punishment.
+        $leave = \App\Models\HabitLeave::create([
+            'circle_id' => $circle->id, 'habit_id' => $habit->id, 'week_start' => '2026-11-09', 'quota_month' => '2026-11-01',
+            'requested_by' => $odi->id,
+        ]);
+        $this->makeConsequence($circle, 'punishment', ['approved_at' => null, 'approved_by' => null]); // diusulkan Odi
+        // Odi kena punishment minggu lalu, belum dikonfirmasi Anjal.
+        \App\Models\WeeklyEvaluation::create([
+            'circle_id' => $circle->id, 'user_id' => $odi->id, 'week_start' => '2026-11-02',
+            'habits_total' => 3, 'habits_achieved' => 1, 'result' => 'punishment',
+        ]);
+
+        $odiBoard = $this->callAs('GET', $this->url($circle->id), $odi)->assertOk()
+            ->assertJsonPath('habits.0.leave_status', 'pending')
+            ->assertJsonPath('pending_leave_approvals_count', 0)          // izin miliknya sendiri
+            ->assertJsonPath('pending_consequence_approvals_count', 0)
+            ->assertJsonPath('punishments_to_confirm_count', 0)
+            ->assertJsonPath('my_open_punishments_count', 1);
+
+        $this->callAs('GET', $this->url($circle->id), $anjal)->assertOk()
+            ->assertJsonPath('pending_leave_approvals_count', 1)
+            ->assertJsonPath('pending_consequence_approvals_count', 1)
+            ->assertJsonPath('punishments_to_confirm_count', 1)
+            ->assertJsonPath('my_open_punishments_count', 0);
+
+        // Setelah disetujui: status izin berubah, lencana izin hilang.
+        $leave->forceFill(['approved_at' => now(), 'approved_by' => $anjal->id])->save();
+        $this->callAs('GET', $this->url($circle->id), $anjal)
+            ->assertJsonPath('habits.0.leave_status', 'approved')
+            ->assertJsonPath('pending_leave_approvals_count', 0);
+    }
+
+    public function test_habit_tanpa_izin_berstatus_izin_null(): void
+    {
+        [$odi, , $circle] = $this->makePair();
+        $this->at('2026-11-10 10:00');
+        $this->makeHabit($circle, $odi);
+
+        $this->callAs('GET', $this->url($circle->id), $odi)->assertJsonPath('habits.0.leave_status', null);
+    }
 }

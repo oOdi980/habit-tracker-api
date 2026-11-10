@@ -5,7 +5,11 @@ use App\Http\Controllers\Api\CheckInController;
 use App\Http\Controllers\Api\CircleController;
 use App\Http\Controllers\Api\CircleInviteController;
 use App\Http\Controllers\Api\CircleJoinController;
+use App\Http\Controllers\Api\ConsequenceController;
+use App\Http\Controllers\Api\EvaluationController;
 use App\Http\Controllers\Api\HabitController;
+use App\Http\Controllers\Api\LeaveController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\TodayController;
 use App\Http\Middleware\ForceJsonResponse;
 use Illuminate\Support\Facades\Route;
@@ -49,5 +53,22 @@ Route::middleware(ForceJsonResponse::class)->group(function () {
         // Check-in
         Route::post('habits/{habit}/check-in', [CheckInController::class, 'store'])->whereNumber('habit');
         Route::delete('habits/{habit}/check-in', [CheckInController::class, 'destroy'])->whereNumber('habit');
+
+        // Daftar reward/punishment (usulan harus disetujui partner)
+        Route::get('circles/{circle}/consequences', [ConsequenceController::class, 'index'])->whereNumber('circle');
+        Route::post('circles/{circle}/consequences', [ConsequenceController::class, 'store'])->whereNumber('circle');
+        Route::post('consequences/{consequence}/approve', [ConsequenceController::class, 'approve'])->whereNumber('consequence');
+        Route::delete('consequences/{consequence}', [ConsequenceController::class, 'destroy'])->whereNumber('consequence');
+
+        // Izin (libur habit per minggu, perlu persetujuan partner)
+        Route::get('circles/{circle}/leaves', [LeaveController::class, 'index'])->whereNumber('circle');
+        Route::post('habits/{habit}/leaves', [LeaveController::class, 'store'])->whereNumber('habit');
+        Route::post('leaves/{leave}/approve', [LeaveController::class, 'approve'])->whereNumber('leave');
+        Route::delete('leaves/{leave}', [LeaveController::class, 'destroy'])->whereNumber('leave');
+
+        // Hasil evaluasi mingguan, konfirmasi punishment oleh partner, dan laporan bulan/tahun
+        Route::get('circles/{circle}/evaluations', [EvaluationController::class, 'index'])->whereNumber('circle');
+        Route::post('evaluations/{evaluation}/fulfill', [EvaluationController::class, 'fulfill'])->whereNumber('evaluation');
+        Route::get('circles/{circle}/report', [ReportController::class, 'show'])->whereNumber('circle');
     });
 });

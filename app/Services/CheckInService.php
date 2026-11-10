@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\HabitScope;
+use App\Models\Circle;
 use App\Models\Habit;
 use App\Models\HabitLog;
 use App\Models\HabitWeeklySummary;
@@ -10,6 +11,7 @@ use App\Models\User;
 use App\Models\WeeklyEvaluation;
 use App\Support\CircleClock;
 use DateTimeImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -18,7 +20,8 @@ use Throwable;
  *  - Tanggal dihitung SERVER (zona waktu sesi); jam HP hanya petunjuk dengan toleransi sempit.
  *  - Idempoten: menekan dua kali tidak membuat dua log (unique + ON CONFLICT DO NOTHING).
  *  - Habit hanya bisa di-check-in saat aktif (starts_on <= tanggal < ends_on).
- *  - Minggu yang sudah dievaluasi terkunci.
+ *  - Minggu yang sudah dievaluasi terkunci; check-in mengunci baris sesi supaya tidak balapan
+ *    dengan job evaluasi mingguan.
  *  - Undo hanya untuk hari ini.
  */
 class CheckInService
@@ -34,31 +37,39 @@ class CheckInService
      */
     public function checkIn(User $user, int $habitId, ?string $clientTsRaw): array
     {
-        $habit = $this->habits->findFor($user, $habitId);
-        $this->assertCanCheckIn($user, $habit);
+        return DB::transaction(function () use ($user, $habitId, $clientTsRaw) {
+            $habit = $this->habits->findFor($user, $habitId);
+            $this->assertCanCheckIn($user, $habit);
 
-        $clock = CircleClock::forCircle($habit->circle);
-        $clientTs = $this->parseClientTs($clientTsRaw);
-        $logDate = $clock->resolveLogDate($clientTs, (int) config('habit.checkin.client_ts_tolerance_minutes'));
+            // Kunci sesi (sama seperti job evaluasi): check-in dan evaluasi mingguan berjalan
+            // bergantian, tidak pernah bersamaan. Tanpa ini, check-in yang lolos cek "minggu masih
+            // terbuka" sesaat sebelum job menutup minggu itu bisa tersimpan SETELAH hasilnya
+            // dibekukan. Biayanya satu SELECT ... FOR UPDATE pada sesi berisi 2 orang.
+            Circle::query()->whereKey($habit->circle_id)->lockForUpdate()->first();
 
-        $this->assertTrackable($habit, $logDate);
-        $this->assertWeekOpen($habit, $user, $logDate);
+            $clock = CircleClock::forCircle($habit->circle);
+            $clientTs = $this->parseClientTs($clientTsRaw);
+            $logDate = $clock->resolveLogDate($clientTs, (int) config('habit.checkin.client_ts_tolerance_minutes'));
 
-        // INSERT ... ON CONFLICT DO NOTHING: balapan dua tap/dua perangkat aman, tanpa error.
-        // completed_at diisi default database (waktu server).
-        $inserted = HabitLog::query()->insertOrIgnore([[
-            'habit_id' => $habit->id,
-            'user_id' => $user->id,
-            'log_date' => $logDate,
-            'client_ts' => $clientTs?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
-        ]]);
+            $this->assertTrackable($habit, $logDate);
+            $this->assertWeekOpen($habit, $user, $logDate);
 
-        return [
-            'created' => $inserted === 1,
-            'habit_id' => $habit->id,
-            'log_date' => $logDate,
-            'progress' => $this->progressFor($habit, $logDate),
-        ];
+            // INSERT ... ON CONFLICT DO NOTHING: balapan dua tap/dua perangkat aman, tanpa error.
+            // completed_at diisi default database (waktu server).
+            $inserted = HabitLog::query()->insertOrIgnore([[
+                'habit_id' => $habit->id,
+                'user_id' => $user->id,
+                'log_date' => $logDate,
+                'client_ts' => $clientTs?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
+            ]]);
+
+            return [
+                'created' => $inserted === 1,
+                'habit_id' => $habit->id,
+                'log_date' => $logDate,
+                'progress' => $this->progressFor($habit, $logDate),
+            ];
+        });
     }
 
     /**
@@ -68,24 +79,29 @@ class CheckInService
      */
     public function undo(User $user, int $habitId): array
     {
-        $habit = $this->habits->findFor($user, $habitId);
-        $this->assertCanCheckIn($user, $habit);
+        return DB::transaction(function () use ($user, $habitId) {
+            $habit = $this->habits->findFor($user, $habitId);
+            $this->assertCanCheckIn($user, $habit);
 
-        $logDate = CircleClock::forCircle($habit->circle)->today();
-        $this->assertWeekOpen($habit, $user, $logDate);
+            // Kunci sesi: alasan sama dengan checkIn().
+            Circle::query()->whereKey($habit->circle_id)->lockForUpdate()->first();
 
-        $deleted = HabitLog::query()
-            ->where('habit_id', $habit->id)
-            ->where('user_id', $user->id)
-            ->where('log_date', $logDate)
-            ->delete();
+            $logDate = CircleClock::forCircle($habit->circle)->today();
+            $this->assertWeekOpen($habit, $user, $logDate);
 
-        return [
-            'deleted' => $deleted > 0,
-            'habit_id' => $habit->id,
-            'log_date' => $logDate,
-            'progress' => $this->progressFor($habit, $logDate),
-        ];
+            $deleted = HabitLog::query()
+                ->where('habit_id', $habit->id)
+                ->where('user_id', $user->id)
+                ->where('log_date', $logDate)
+                ->delete();
+
+            return [
+                'deleted' => $deleted > 0,
+                'habit_id' => $habit->id,
+                'log_date' => $logDate,
+                'progress' => $this->progressFor($habit, $logDate),
+            ];
+        });
     }
 
     /** Habit personal hanya boleh di-check-in pemiliknya; partner hanya memantau. */

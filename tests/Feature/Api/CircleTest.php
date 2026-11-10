@@ -15,8 +15,8 @@ class CircleTest extends ApiTestCase
             ->assertCreated()
             ->assertJsonPath('circle.name', 'Odi & Anjal')
             ->assertJsonPath('circle.timezone', 'Asia/Jakarta')
-            ->assertJsonPath('circle.reward_min_ratio', 90)       // default dari database ikut terbaca
-            ->assertJsonPath('circle.punishment_below_ratio', 60)
+            ->assertJsonPath('circle.reward_min_ratio', 80)       // default dari database ikut terbaca
+            ->assertJsonPath('circle.punishment_below_ratio', 50)
             ->assertJsonPath('circle.is_full', false)
             ->assertJsonCount(1, 'circle.members');
 

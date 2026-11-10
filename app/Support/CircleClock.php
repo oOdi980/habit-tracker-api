@@ -72,6 +72,28 @@ final class CircleClock
         return self::addDays($this->weekStart(), 7);
     }
 
+    /**
+     * Senin dari minggu TERAKHIR yang sudah boleh dievaluasi.
+     *
+     * Minggu yang baru berakhir baru boleh dievaluasi setelah $graceMinutes lewat dari Senin
+     * 00:00 lokal (menunggu check-in antre offline yang masih sah masuk). Sebelum itu, minggu
+     * terakhir yang boleh dievaluasi masih satu minggu lebih awal.
+     *   Senin 00:05, grace 11 -> dua minggu lalu;  Senin 00:11 -> minggu lalu.
+     *
+     * Selisih waktu dihitung pada instan mutlak (timestamp), bukan pada jam dinding, jadi
+     * tidak terpengaruh perpindahan DST.
+     */
+    public function lastClosedWeekStart(int $graceMinutes): string
+    {
+        $weekStart = $this->weekStart();
+        // Instan Senin 00:00 di zona sesi. (Bila 00:00 tidak ada karena DST, PHP maju ke jam valid pertama.)
+        $weekStartInstant = new DateTimeImmutable($weekStart.' 00:00:00', $this->tz);
+
+        $elapsedSeconds = $this->now->getTimestamp() - $weekStartInstant->getTimestamp();
+
+        return self::addDays($weekStart, $elapsedSeconds < $graceMinutes * 60 ? -14 : -7);
+    }
+
     public function utcNow(): DateTimeImmutable
     {
         return $this->now;

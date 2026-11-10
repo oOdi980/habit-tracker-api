@@ -3,6 +3,7 @@
 namespace Tests;
 
 use App\Models\Circle;
+use App\Models\Consequence;
 use App\Models\Habit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -69,6 +70,32 @@ abstract class ApiTestCase extends TestCase
             'target_per_week' => 3,
             'starts_on' => '2026-11-09',
         ], $shared ? ['accepted_at' => now()] : [], $attrs));
+    }
+
+    /**
+     * Item reward/punishment langsung di database. Bawaan: aktif, diusulkan anggota pertama,
+     * disetujui anggota kedua pada 2026-01-01 (jauh sebelum minggu mana pun di tes).
+     * Sesi harus berisi 2 anggota.
+     */
+    protected function makeConsequence(Circle $circle, string $type, array $attrs = []): Consequence
+    {
+        [$first, $second] = $circle->members()->orderBy('users.id')->get()->all();
+
+        return Consequence::create(array_merge([
+            'circle_id' => $circle->id,
+            'type' => $type,
+            'title' => ucfirst($type).' tes',
+            'is_active' => true,
+            'created_by' => $first->id,
+            'approved_by' => $second->id,
+            'approved_at' => '2026-01-01 00:00:00',
+        ], $attrs));
+    }
+
+    /** Jalankan job evaluasi mingguan persis seperti scheduler (lewat command). */
+    protected function evaluate(): void
+    {
+        $this->artisan('habits:evaluate-weeks')->assertSuccessful();
     }
 
     /**

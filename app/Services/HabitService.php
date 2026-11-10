@@ -137,15 +137,14 @@ class HabitService
                 abort(403, 'Habit ini menunggu persetujuanmu; hanya pembuatnya yang bisa mengubah.');
             }
 
-            // Pindahkan perubahan tertahan yang sudah jatuh tempo dulu, supaya perbandingan
-            // di bawah memakai target yang benar-benar berlaku minggu ini.
-            $this->settlePending($habit, $clock->weekStart());
-
             if (array_key_exists('title', $data)) {
                 $habit->title = $data['title'];
             }
 
             if (array_key_exists('target_per_week', $data)) {
+                // Hanya sentuh target (dan perubahan tertahan) bila memang target yang diedit.
+                // Ganti judul tidak pernah menggeser target.
+                $this->settleDuePending($habit, $clock);
                 $this->applyTarget($habit, (int) $data['target_per_week'], $state, $clock);
             }
 
@@ -280,13 +279,32 @@ class HabitService
         $habit->pending_target_from = $clock->nextMonday();
     }
 
-    /** Jika perubahan tertahan sudah jatuh tempo (<= awal minggu ini), jadikan target berjalan. */
-    private function settlePending(Habit $habit, string $weekStart): void
+    /**
+     * Jika perubahan tertahan sudah jatuh tempo (<= awal minggu ini), jadikan target berjalan.
+     *
+     * Hanya boleh bila minggu LALU sudah selesai dievaluasi. Kalau belum (Senin dini hari, atau
+     * job sedang mengejar ketertinggalan), memindahkannya sekarang akan membuat minggu lalu
+     * dinilai dengan target minggu ini. Job evaluasi yang memindahkannya pada waktunya
+     * (EvaluationService::markEvaluated); sampai saat itu edit target ditolak sementara.
+     * Tampilan tidak terganggu karena membaca lewat Habit::targetFor().
+     */
+    private function settleDuePending(Habit $habit, CircleClock $clock): void
     {
-        if ($habit->pending_target_from !== null && $habit->pending_target_from <= $weekStart) {
-            $habit->target_per_week = (int) $habit->pending_target_per_week;
-            $habit->pending_target_per_week = null;
-            $habit->pending_target_from = null;
+        $weekStart = $clock->weekStart();
+
+        if ($habit->pending_target_from === null || $habit->pending_target_from > $weekStart) {
+            return;
         }
+
+        $through = $habit->circle->evaluated_through;
+        if ($through === null || $through < CircleClock::addDays($weekStart, -7)) {
+            throw ValidationException::withMessages([
+                'target_per_week' => 'Evaluasi minggu lalu sedang diproses. Coba ubah target lagi beberapa menit lagi.',
+            ]);
+        }
+
+        $habit->target_per_week = (int) $habit->pending_target_per_week;
+        $habit->pending_target_per_week = null;
+        $habit->pending_target_from = null;
     }
 }

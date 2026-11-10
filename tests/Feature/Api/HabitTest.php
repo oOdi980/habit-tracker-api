@@ -319,6 +319,8 @@ class HabitTest extends ApiTestCase
             'target_per_week' => 3, 'pending_target_per_week' => 5, 'pending_target_from' => '2026-11-09',
         ]);
         $this->at('2026-11-10 10:00');
+        // Minggu lalu (11-02) sudah dievaluasi, jadi perubahan yang jatuh tempo boleh dipindahkan.
+        $circle->forceFill(['evaluated_through' => '2026-11-02'])->save();
 
         // Target berjalan sebenarnya sudah 5. Mengirim 5 tidak boleh "mengembalikan" ke 3.
         $this->callAs('PATCH', "/api/habits/{$habit->id}", $odi, ['target_per_week' => 5])
@@ -326,6 +328,28 @@ class HabitTest extends ApiTestCase
             ->assertJsonPath('habit.target_per_week', 5)
             ->assertJsonPath('habit.next_target', null);
         $this->assertDatabaseHas('habits', ['id' => $habit->id, 'target_per_week' => 5, 'pending_target_per_week' => null]);
+    }
+
+    public function test_edit_target_ditolak_selama_evaluasi_minggu_lalu_belum_selesai(): void
+    {
+        [$odi, , $circle] = $this->makePair();
+        $habit = $this->makeHabit($circle, $odi, [
+            'target_per_week' => 3, 'pending_target_per_week' => 5, 'pending_target_from' => '2026-11-09',
+        ]);
+        $this->at('2026-11-09 00:05'); // Senin dini hari: minggu 11-02 belum dievaluasi
+
+        // Memindahkan target 5 sekarang akan membuat minggu lalu dinilai dengan target 5.
+        $this->callAs('PATCH', "/api/habits/{$habit->id}", $odi, ['target_per_week' => 4])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('target_per_week');
+
+        $this->assertDatabaseHas('habits', [
+            'id' => $habit->id, 'target_per_week' => 3, 'pending_target_per_week' => 5, 'pending_target_from' => '2026-11-09',
+        ]);
+
+        // Ganti judul tidak menyentuh target, jadi tetap boleh.
+        $this->callAs('PATCH', "/api/habits/{$habit->id}", $odi, ['title' => 'Judul baru'])->assertOk();
+        $this->assertDatabaseHas('habits', ['id' => $habit->id, 'target_per_week' => 3, 'pending_target_per_week' => 5]);
     }
 
     public function test_ubah_target_habit_yang_belum_mulai_berlaku_langsung(): void

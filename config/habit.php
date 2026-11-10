@@ -30,4 +30,22 @@ return [
         // Jam dari HP dipercaya hanya bila selisihnya dengan jam server <= nilai ini (menit).
         'client_ts_tolerance_minutes' => 10,
     ],
+
+    'evaluation' => [
+        // Minggu W baru dievaluasi setelah Senin 00:00 (waktu sesi) + nilai ini (menit).
+        // Selalu dipaksa minimal toleransi client_ts + 1 menit (lihat EvaluationService),
+        // supaya check-in yang antre offline di pergantian minggu sudah pasti masuk.
+        'grace_minutes' => 11,
+
+        // Batas jumlah minggu yang boleh diminta sekali panggil daftar evaluasi.
+        'max_list_weeks' => 52,
+    ],
+
+    'leave' => [
+        // Kuota izin per orang per bulan (satu izin = satu habit di satu minggu).
+        'per_month' => 4,
+    ],
+
+    // Batas item reward + punishment yang aktif (termasuk yang menunggu persetujuan) per sesi.
+    'max_consequences_per_circle' => 100,
 ];
