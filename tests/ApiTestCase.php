@@ -5,7 +5,9 @@ namespace Tests;
 use App\Models\Circle;
 use App\Models\Consequence;
 use App\Models\Habit;
+use App\Models\HabitTask;
 use App\Models\User;
+use App\Support\TaskName;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
@@ -70,6 +72,52 @@ abstract class ApiTestCase extends TestCase
             'target_per_week' => 3,
             'starts_on' => '2026-11-09',
         ], $shared ? ['accepted_at' => now()] : [], $attrs));
+    }
+
+    /**
+     * Tugas langsung di database. $spec = [[nama, jenis, target], ...]. Hasilnya dikunci dengan
+     * kunci nama (huruf kecil), jadi tes bisa menulis $tugas['push up']->id.
+     *
+     * @return array<string, HabitTask>
+     */
+    protected function makeTasks(Habit $habit, User $user, array $spec, array $attrs = []): array
+    {
+        $tasks = [];
+
+        foreach (array_values($spec) as $position => [$name, $metric, $target]) {
+            $key = TaskName::key($name);
+
+            $tasks[$key] = HabitTask::create(array_merge([
+                'habit_id' => $habit->id,
+                'user_id' => $user->id,
+                'name' => $name,
+                'name_key' => $key,
+                'metric' => $metric,
+                'target' => $target,
+                'position' => $position,
+            ], $attrs));
+        }
+
+        return $tasks;
+    }
+
+    /**
+     * Habit checklist personal milik $owner beserta tugas bawaannya (valid sejak habit dibuat):
+     * push up 50 kali, pull up 20 kali, lari 3000 meter. Bawaan: mulai 2026-11-09, target 2 hari/minggu.
+     *
+     * @return array{0: Habit, 1: array<string, HabitTask>}
+     */
+    protected function makeChecklist(Circle $circle, User $owner, ?array $spec = null, array $attrs = []): array
+    {
+        $habit = $this->makeHabit($circle, $owner, array_merge(['mode' => 'checklist', 'target_per_week' => 2], $attrs));
+
+        $tasks = $this->makeTasks($habit, $owner, $spec ?? [
+            ['Push up', 'count', 50],
+            ['Pull up', 'count', 20],
+            ['Lari', 'meters', 3000],
+        ]);
+
+        return [$habit, $tasks];
     }
 
     /**

@@ -32,6 +32,7 @@ class HabitResource extends JsonResource
             'title' => $habit->title,
             'scope' => $habit->scope->value,
             'completion_rule' => $habit->completion_rule->value,
+            'mode' => $habit->mode->value,
             'owner_id' => $habit->owner_id,
             'created_by' => $habit->created_by,
             'status' => $habit->lifecycle($today),

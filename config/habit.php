@@ -31,6 +31,34 @@ return [
         'client_ts_tolerance_minutes' => 10,
     ],
 
+    // Tugas harian pada habit bermode "checklist" (hammer curl, push up, lari, jalan kaki, ...).
+    // Semua jumlah memakai satuan dasar bilangan bulat: kali, menit, METER, langkah, dan GRAM
+    // (bukan desimal), supaya tidak ada bug pembulatan dan penjumlahan.
+    'task' => [
+        // Banyak tugas yang berlaku bersamaan untuk satu orang di satu habit.
+        'max_per_user_per_habit' => 10,
+        'name_max' => 60,
+
+        // Batas target harian dan batas SATU entri, per jenis ukuran.
+        'max_amount' => [
+            'count' => 10000,
+            'minutes' => 1440,      // sehari hanya 24 jam
+            'meters' => 1000000,    // 1000 km
+            'steps' => 200000,
+        ],
+
+        'max_weight_g' => 1000000,  // 1000 kg
+
+        // Mencegah satu tugas dibanjiri ratusan entri dalam sehari (ada "ubah angka" untuk koreksi).
+        'max_entries_per_task_per_day' => 100,
+
+        'note_max' => 500,
+
+        // Riwayat: berapa HARI beraktivitas per halaman.
+        'history_default_days' => 14,
+        'history_max_days' => 31,
+    ],
+
     'evaluation' => [
         // Minggu W baru dievaluasi setelah Senin 00:00 (waktu sesi) + nilai ini (menit).
         // Selalu dipaksa minimal toleransi client_ts + 1 menit (lihat EvaluationService),

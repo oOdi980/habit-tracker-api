@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\HabitMode;
 use App\Enums\HabitScope;
 use App\Models\Circle;
 use App\Models\Habit;
@@ -23,6 +24,8 @@ use Throwable;
  *  - Minggu yang sudah dievaluasi terkunci; check-in mengunci baris sesi supaya tidak balapan
  *    dengan job evaluasi mingguan.
  *  - Undo hanya untuk hari ini.
+ *  - Hanya untuk habit bermode 'simple'. Habit 'checklist' tidak punya tombol check-in: barisnya
+ *    dibuat/dihapus OTOMATIS oleh TaskProgressService lewat ensureLog()/dropLog() di bawah.
  */
 class CheckInService
 {
@@ -40,6 +43,7 @@ class CheckInService
         return DB::transaction(function () use ($user, $habitId, $clientTsRaw) {
             $habit = $this->habits->findFor($user, $habitId);
             $this->assertCanCheckIn($user, $habit);
+            $this->assertSimple($habit);
 
             // Kunci sesi (sama seperti job evaluasi): check-in dan evaluasi mingguan berjalan
             // bergantian, tidak pernah bersamaan. Tanpa ini, check-in yang lolos cek "minggu masih
@@ -55,16 +59,10 @@ class CheckInService
             $this->assertWeekOpen($habit, $user, $logDate);
 
             // INSERT ... ON CONFLICT DO NOTHING: balapan dua tap/dua perangkat aman, tanpa error.
-            // completed_at diisi default database (waktu server).
-            $inserted = HabitLog::query()->insertOrIgnore([[
-                'habit_id' => $habit->id,
-                'user_id' => $user->id,
-                'log_date' => $logDate,
-                'client_ts' => $clientTs?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
-            ]]);
+            $created = $this->ensureLog($habit, $user, $logDate, $clientTs);
 
             return [
-                'created' => $inserted === 1,
+                'created' => $created,
                 'habit_id' => $habit->id,
                 'log_date' => $logDate,
                 'progress' => $this->progressFor($habit, $logDate),
@@ -82,6 +80,7 @@ class CheckInService
         return DB::transaction(function () use ($user, $habitId) {
             $habit = $this->habits->findFor($user, $habitId);
             $this->assertCanCheckIn($user, $habit);
+            $this->assertSimple($habit);
 
             // Kunci sesi: alasan sama dengan checkIn().
             Circle::query()->whereKey($habit->circle_id)->lockForUpdate()->first();
@@ -89,19 +88,87 @@ class CheckInService
             $logDate = CircleClock::forCircle($habit->circle)->today();
             $this->assertWeekOpen($habit, $user, $logDate);
 
-            $deleted = HabitLog::query()
-                ->where('habit_id', $habit->id)
-                ->where('user_id', $user->id)
-                ->where('log_date', $logDate)
-                ->delete();
+            $deleted = $this->dropLog($habit, $user, $logDate);
 
             return [
-                'deleted' => $deleted > 0,
+                'deleted' => $deleted,
                 'habit_id' => $habit->id,
                 'log_date' => $logDate,
                 'progress' => $this->progressFor($habit, $logDate),
             ];
         });
+    }
+
+    /**
+     * Semua syarat agar sebuah catatan untuk $logDate boleh ditulis oleh $user: pemilik habit,
+     * habit sedang berjalan pada tanggal itu, dan minggunya belum dievaluasi. Dipakai bersama oleh
+     * check-in dan oleh pencatatan progres tugas, supaya aturannya tidak bisa menyimpang.
+     * Wajib dipanggil SETELAH sesi dikunci.
+     */
+    public function assertWritable(User $user, Habit $habit, string $logDate): void
+    {
+        $this->assertCanCheckIn($user, $habit);
+        $this->assertTrackable($habit, $logDate);
+        $this->assertWeekOpen($habit, $user, $logDate);
+    }
+
+    /**
+     * Pastikan baris check-in hari itu ada. Idempoten (ON CONFLICT DO NOTHING); true bila baru dibuat.
+     * completed_at diisi default database (waktu server), tidak pernah dari klien.
+     */
+    public function ensureLog(Habit $habit, User $user, string $logDate, ?DateTimeImmutable $clientTs = null): bool
+    {
+        return HabitLog::query()->insertOrIgnore([[
+            'habit_id' => $habit->id,
+            'user_id' => $user->id,
+            'log_date' => $logDate,
+            'client_ts' => $clientTs?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
+        ]]) === 1;
+    }
+
+    /** Hapus baris check-in hari itu bila ada. True bila ada yang terhapus. */
+    public function dropLog(Habit $habit, User $user, string $logDate): bool
+    {
+        return HabitLog::query()
+            ->where('habit_id', $habit->id)
+            ->where('user_id', $user->id)
+            ->where('log_date', $logDate)
+            ->delete() > 0;
+    }
+
+    /** Progres minggu dari $logDate untuk satu habit (dipakai respons check-in dan respons tugas). */
+    public function progressFor(Habit $habit, string $logDate): array
+    {
+        $weekStart = CircleClock::weekStartOf($logDate);
+        $p = $this->progress->forHabit($habit, $weekStart);
+
+        return [
+            'week_start' => $weekStart,
+            'done' => $p['done'],
+            'target' => $p['target'],
+            'achieved' => $p['achieved'],
+        ];
+    }
+
+    public function parseClientTs(?string $raw): ?DateTimeImmutable
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        try {
+            return new DateTimeImmutable($raw);
+        } catch (Throwable) {
+            throw ValidationException::withMessages(['client_ts' => 'Format waktu tidak valid.']);
+        }
+    }
+
+    /** Habit bertugas dicek-in otomatis lewat tugasnya; tombol check-in langsung ditolak. */
+    private function assertSimple(Habit $habit): void
+    {
+        if ($habit->mode === HabitMode::Checklist) {
+            $this->reject('Habit ini punya daftar tugas. Selesaikan semua tugas hari ini, check-in tercatat otomatis.');
+        }
     }
 
     /** Habit personal hanya boleh di-check-in pemiliknya; partner hanya memantau. */
@@ -147,32 +214,6 @@ class CheckInService
 
         if ($summaryClosed || $evaluated) {
             $this->reject('Minggu itu sudah dievaluasi, check-in tidak bisa diubah lagi.');
-        }
-    }
-
-    private function progressFor(Habit $habit, string $logDate): array
-    {
-        $weekStart = CircleClock::weekStartOf($logDate);
-        $p = $this->progress->forHabit($habit, $weekStart);
-
-        return [
-            'week_start' => $weekStart,
-            'done' => $p['done'],
-            'target' => $p['target'],
-            'achieved' => $p['achieved'],
-        ];
-    }
-
-    private function parseClientTs(?string $raw): ?DateTimeImmutable
-    {
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-
-        try {
-            return new DateTimeImmutable($raw);
-        } catch (Throwable) {
-            throw ValidationException::withMessages(['client_ts' => 'Format waktu tidak valid.']);
         }
     }
 

@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Enums\CompletionRule;
+use App\Enums\HabitMode;
 use App\Enums\HabitScope;
 use App\Models\Circle;
 use App\Models\Habit;
 use App\Models\User;
 use App\Support\CircleClock;
+use App\Support\TaskRows;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -70,7 +72,11 @@ class HabitService
         return ['today' => $today, 'habits' => $habits];
     }
 
-    /** @param array{title: string, scope: string, target_per_week: int} $data */
+    /**
+     * @param array{title: string, scope: string, target_per_week: int, mode?: string, tasks?: array} $data
+     *        'tasks' (habit checklist) = daftar tugas MILIK PEMBUAT; partner mengisi daftarnya sendiri
+     *        lewat TaskService::replaceOwn.
+     */
     public function create(User $user, int $circleId, array $data): Habit
     {
         return DB::transaction(function () use ($user, $circleId, $data) {
@@ -83,6 +89,7 @@ class HabitService
             $clock = CircleClock::forCircle($circle);
             $today = $clock->today();
             $isShared = $data['scope'] === HabitScope::Shared->value;
+            $mode = HabitMode::from($data['mode'] ?? HabitMode::Simple->value);
 
             $open = Habit::query()
                 ->where('circle_id', $circle->id)
@@ -108,10 +115,18 @@ class HabitService
                 'scope' => $isShared ? HabitScope::Shared : HabitScope::Personal,
                 'completion_rule' => $isShared ? CompletionRule::Together : CompletionRule::Individual,
                 'target_per_week' => (int) $data['target_per_week'],
+                // Eksplisit (bukan mengandalkan default database) supaya model hasilnya langsung benar.
+                'mode' => $mode,
                 // Habit personal langsung pasti, mulai Senin depan. Habit bersama menunggu
                 // persetujuan partner dulu (starts_on diisi saat disetujui).
                 'starts_on' => $isShared ? null : $clock->nextMonday(),
             ]);
+
+            // Tugas milik pembuat, berlaku "sejak habit dibuat" (valid_from kosong). Satu transaksi
+            // dengan habitnya: tidak mungkin ada habit checklist tanpa tugas pembuatnya.
+            if ($mode === HabitMode::Checklist) {
+                TaskRows::insert($habit->id, $user->id, TaskRows::normalize($data['tasks'] ?? []), null);
+            }
 
             return $habit->setRelation('circle', $circle);
         });

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CompletionRule;
+use App\Enums\HabitMode;
 use App\Enums\HabitScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,9 +19,14 @@ class Habit extends Model
     public const ENDED = 'ended';                       // sudah berakhir (tersembunyi)
 
     protected $fillable = [
-        'circle_id', 'owner_id', 'created_by', 'title', 'scope', 'completion_rule',
+        'circle_id', 'owner_id', 'created_by', 'title', 'scope', 'completion_rule', 'mode',
         'target_per_week', 'pending_target_per_week', 'pending_target_from',
         'accepted_at', 'starts_on', 'ends_on', 'archived_at',
+    ];
+
+    // Sama dengan default di database, supaya habit yang baru dibuat di memori langsung punya mode.
+    protected $attributes = [
+        'mode' => 'simple',
     ];
 
     // Kolom DATE (starts_on, ends_on, pending_target_from) sengaja TIDAK di-cast: dibiarkan
@@ -31,6 +37,7 @@ class Habit extends Model
         return [
             'scope' => HabitScope::class,
             'completion_rule' => CompletionRule::class,
+            'mode' => HabitMode::class,
             'target_per_week' => 'integer',
             'pending_target_per_week' => 'integer',
             'accepted_at' => 'datetime',
@@ -67,6 +74,18 @@ class Habit extends Model
         return (int) $this->target_per_week;
     }
 
+    /**
+     * Siapa saja yang punya check-in di habit ini: pemiliknya (personal) atau seluruh anggota sesi
+     * (bersama). $memberIds = id semua anggota sesi.
+     *
+     * @param  int[]  $memberIds
+     * @return int[]
+     */
+    public function participantIds(array $memberIds): array
+    {
+        return $this->scope === HabitScope::Personal ? [(int) $this->owner_id] : $memberIds;
+    }
+
     public function circle(): BelongsTo
     {
         return $this->belongsTo(Circle::class);
@@ -86,6 +105,11 @@ class Habit extends Model
     public function logs(): HasMany
     {
         return $this->hasMany(HabitLog::class);
+    }
+
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(HabitTask::class);
     }
 
     public function weeklySummaries(): HasMany

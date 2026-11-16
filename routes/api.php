@@ -8,8 +8,10 @@ use App\Http\Controllers\Api\CircleJoinController;
 use App\Http\Controllers\Api\ConsequenceController;
 use App\Http\Controllers\Api\EvaluationController;
 use App\Http\Controllers\Api\HabitController;
+use App\Http\Controllers\Api\HabitTaskController;
 use App\Http\Controllers\Api\LeaveController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\TaskProgressController;
 use App\Http\Controllers\Api\TodayController;
 use App\Http\Middleware\ForceJsonResponse;
 use Illuminate\Support\Facades\Route;
@@ -53,6 +55,17 @@ Route::middleware(ForceJsonResponse::class)->group(function () {
         // Check-in
         Route::post('habits/{habit}/check-in', [CheckInController::class, 'store'])->whereNumber('habit');
         Route::delete('habits/{habit}/check-in', [CheckInController::class, 'destroy'])->whereNumber('habit');
+
+        // Habit bertugas (mode checklist): daftar tugas, catatan harian, riwayat
+        Route::get('habits/{habit}/tasks', [HabitTaskController::class, 'index'])->whereNumber('habit');
+        Route::put('habits/{habit}/tasks', [HabitTaskController::class, 'update'])->whereNumber('habit');
+        Route::put('habits/{habit}/note', [HabitTaskController::class, 'note'])->whereNumber('habit');
+        Route::get('habits/{habit}/history', [HabitTaskController::class, 'history'])->whereNumber('habit');
+
+        // Progres harian sebuah tugas (check-in habit-nya otomatis mengikuti)
+        Route::post('tasks/{task}/entries', [TaskProgressController::class, 'store'])->whereNumber('task');
+        Route::put('tasks/{task}/progress', [TaskProgressController::class, 'update'])->whereNumber('task');
+        Route::delete('tasks/{task}/progress', [TaskProgressController::class, 'destroy'])->whereNumber('task');
 
         // Daftar reward/punishment (usulan harus disetujui partner)
         Route::get('circles/{circle}/consequences', [ConsequenceController::class, 'index'])->whereNumber('circle');

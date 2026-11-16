@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\HabitMode;
 use App\Enums\HabitScope;
 use App\Models\Habit;
 use App\Models\HabitLeave;
@@ -15,6 +16,7 @@ class TodayService
     public function __construct(
         private readonly HabitService $habits,
         private readonly ProgressService $progress,
+        private readonly TaskProgressService $tasks,
     ) {
     }
 
@@ -43,6 +45,13 @@ class TodayService
 
         $progress = $this->progress->weekProgress($habits, $memberIds, $weekStart);
 
+        // Isi tugas hari ini untuk habit checklist (kedua anggota terlihat), tiga query untuk semuanya.
+        $details = $this->tasks->board(
+            $habits->filter(fn (Habit $habit) => $habit->mode === HabitMode::Checklist),
+            $memberIds,
+            $today
+        );
+
         // Status izin minggu ini per habit: 'pending' (menunggu partner) atau 'approved'. Satu query.
         $leaveStatus = HabitLeave::query()
             ->where('circle_id', $circle->id)
@@ -51,7 +60,7 @@ class TodayService
             ->mapWithKeys(fn ($leave) => [(int) $leave->habit_id => $leave->approved_at === null ? 'pending' : 'approved'])
             ->all();
 
-        $rows = $habits->map(function (Habit $habit) use ($progress, $today, $user, $leaveStatus) {
+        $rows = $habits->map(function (Habit $habit) use ($progress, $today, $user, $leaveStatus, $details) {
             $p = $progress[$habit->id];
 
             $doneToday = [];
@@ -67,6 +76,7 @@ class TodayService
                 'title' => $habit->title,
                 'scope' => $habit->scope->value,
                 'completion_rule' => $habit->completion_rule->value,
+                'mode' => $habit->mode->value,
                 'owner_id' => $habit->owner_id,
                 'status' => $habit->lifecycle($today),
                 'ends_on' => $habit->ends_on,
@@ -74,6 +84,8 @@ class TodayService
                 'week_done' => $p['done'],
                 'week_achieved' => $p['achieved'],
                 'done_today_by' => $doneToday,
+                // Habit simpel: null. Habit checklist: [{user_id, complete, note, tasks: [...]}] per anggota.
+                'detail' => $details[$habit->id] ?? null,
                 'leave_status' => $leaveStatus[$habit->id] ?? null,
                 // Habit personal: hanya pemiliknya yang boleh check-in; partner hanya memantau.
                 'can_check_in' => $habit->scope === HabitScope::Shared || (int) $habit->owner_id === $user->id,
