@@ -1,58 +1,64 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Habit Tracker API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend REST API untuk aplikasi pemantau kebiasaan yang dipakai berdua: tiap orang punya habit sendiri, saling memantau progres, dan hasil mingguan menentukan reward atau punishment. Dibangun dengan **Laravel**, **PostgreSQL**, dan autentikasi token **Sanctum**.
 
-## About Laravel
+> **Status:** dalam pengembangan aktif. Backend Fase 1a sampai 1e selesai dan teruji, belum di-deploy.
+> Klien: [habit-tracker-app](https://github.com/oOdi980/habit-tracker-app) (Flutter).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Fitur
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Sesi privat** berisi tepat 2 orang. Akun berikutnya mendaftar lewat kode undangan, dan timezone sesi dikunci saat dibuat.
+- **Habit personal dan habit bersama.** Pada habit bersama, hari baru dihitung bila keduanya check-in di hari yang sama.
+- **Check-in dengan detail tugas** (misalnya push up, pull up) dan target per tugas. Hari baru terhitung check-in hanya bila semua tugas mencapai batasnya.
+- **Evaluasi mingguan otomatis** (minggu dihitung Senin sampai Minggu 23.59), dijalankan scheduler pada Senin 00:10 waktu lokal sesi.
+- **Izin libur habit** per minggu dengan kuota bulanan, perlu persetujuan partner.
+- **Daftar reward dan punishment** yang diisi bersama. Punishment diacak server dan diselesaikan setelah disetujui partner.
+- **Laporan progres** mingguan, bulanan, dan tahunan.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Stack
 
-## Learning Laravel
+Laravel (PHP) · PostgreSQL · Laravel Sanctum · PHPUnit
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Keputusan desain
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- **Aturan data dijaga di database.** Selain validasi di aplikasi, invarian penting dipasang sebagai `CHECK` constraint PostgreSQL.
+- **Scheduler yang tahan telat.** Scheduler berjalan tiap 10 menit dan mengejar evaluasi yang terlewat, jadi server mati sebentar tidak menghilangkan evaluasi mingguan.
+- **Batas hari tegas.** Check-in ditutup tepat 23:59 waktu sesi, tanpa masa tenggang.
+- **Perubahan habit berlaku Senin depan**, supaya minggu yang sedang berjalan tidak berubah di tengah jalan.
+- **Item reward/punishment baru harus disetujui partner** dan tidak ikut diacak untuk punishment yang sudah diputuskan, supaya tidak ada yang bisa menyelipkan hukuman ringan lalu kena acak.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Menjalankan secara lokal
 
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Prasyarat: PHP, Composer, PostgreSQL.
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone https://github.com/oOdi980/habit-tracker-api.git
+cd habit-tracker-api
+composer install
+cp .env.example .env
+php artisan key:generate
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Atur koneksi PostgreSQL di `.env` (`DB_CONNECTION=pgsql`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`), lalu:
 
-## Contributing
+```bash
+php artisan migrate
+php artisan serve
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Untuk mencoba scheduler secara lokal: `php artisan schedule:work`.
 
-## Code of Conduct
+Daftar endpoint ada di `routes/api.php`.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Testing
 
-## Security Vulnerabilities
+```bash
+php artisan test
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Per November 2026, 215 tes backend lulus. Tes memakai database terpisah, jadi buat dulu database tes dan sesuaikan konfigurasinya di `phpunit.xml`.
 
-## License
+## Rencana
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- Deployment ke hosting
+- Pengingat (reminder) dua lapis: statis dan dinamis
